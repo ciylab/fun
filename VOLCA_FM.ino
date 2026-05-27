@@ -2,13 +2,13 @@
  * @file VOLCA_FM.ino
  * @brief Fichier principal du projet 
  * 
- * Le module envoie des messages sysex activés par :
+ * Le module envoie des messages NRPN activés par :
  * - envoie de CC extérieurs
  * - encodeurs 
  * Il est configuré pour simuler le Yamaha FB-01 de 1986
  * (4 opérateurs et 8 algorithmes) sur le Korg Volca FM.
  *
- * Une voix nommée DEFAULT est initialisée sur le volca avec
+ * Une voix nommée MYPATCH est initialisée sur le volca avec
  * des paramètres par défaut qu'il reste à modifier en live.
  * Cette voix est générée par un script python.
  *

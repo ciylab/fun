@@ -25,6 +25,8 @@ byte algorithm_num[8] = {0, 13, 7, 6, 4, 21, 30, 31};
 
 /**
  * @brief Pour stocker tous les paramètres FM avec des valeurs par défaut.
+ * 
+ * Ces paramètres sont par défaut ceux du patch MYPATCH.
  * */
 byte parameters_value[156] = {
     M, M, 0, 0, M, M, M, M, // RATE, LEVEL
@@ -81,6 +83,8 @@ byte get_max(byte index) {
 
 /**
  * @brief attribue la valeur au paramètre FM.
+ *
+ * Ici pas de sysex mais 3 NRPNs pour le firmware 1.09.
  */
 void set_value(byte index, byte value) {
     if (index == ALGORITHM) {
@@ -94,19 +98,19 @@ void set_value(byte index, byte value) {
      * enfin CC6:22 (valeur NRPN) etc. ou 
      * B0 63 01 B0 62 06 B0 06 16 pour le canal MIDI 1.
      */
-    byte sysexArray[9] = {
+    byte NRPNsArray[9] = {
         0xB0, 0x63, 0x00, 0xB0, 0x62, 0x00, 0xB0, 0x06, 0x00
     };
-    sysexArray[2] = index >> 7;
-    sysexArray[5] = index & 127;
-    sysexArray[8] = value;
-    MIDI.sendSysEx(9, sysexArray, true);
+    NRPNsArray[2] = index >> 7;
+    NRPNsArray[5] = index & 127;
+    NRPNsArray[8] = value;
+    MIDI.sendSysEx(9, NRPNsArray, true);
     if (index == 68 || index == 47 || index == 26 || index == 5) {
-        sysexArray[5]++;
-        MIDI.sendSysEx(9, sysexArray, true); // L2 = L3
-        sysexArray[5] = sysexArray[5] - 4;
-        sysexArray[8] = 0;
-        MIDI.sendSysEx(9, sysexArray, true); // R3 = 0
+        NRPNsArray[5]++;
+        MIDI.sendSysEx(9, NRPNsArray, true); // L2 = L3
+        NRPNsArray[5] = NRPNsArray[5] - 4;
+        NRPNsArray[8] = 0;
+        MIDI.sendSysEx(9, NRPNsArray, true); // R3 = 0
     }
 }
 
@@ -122,7 +126,7 @@ void change_algo(int8_t rotation) {
     set_page_index(current_algo + 7);
     set_value(ALGORITHM, current_algo);
     /** 
-    * message sysex pour mettre off les opérateurs 1 et 2
+    * messages NRPN pour mettre off les opérateurs 1 et 2
     */
     set_value(155, 15);
 }
