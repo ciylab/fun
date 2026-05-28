@@ -26,6 +26,7 @@
 #include "src/encoder.h"
 #include "src/midi.h"
 #include "src/volca.h"
+#include "src/mypatch.h"
 
 Display oled; /**<l'écran */
 /**le tableau des deux encodeurs */

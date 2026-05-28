@@ -1,0 +1,769 @@
+#!/usr/bin/perl -w
+#
+# syx2json
+# John Simpson <jms1@jms1.net> 2022-08-23
+#
+# Print the contents of a DX7 '.syx' file as JSON (or CSV, or text)
+
+require 5.005 ;
+use strict ;
+
+use Getopt::Std ;
+
+my %opt         = () ;
+my $out_format  = '' ;  # -[cCjJt]
+my $csv_headers = 0 ;   # -C
+my $json_raw    = 0 ;   # -J
+
+my @opf = qw(
+    EGR1 EGR2 EGR3 EGR4 EGL1 EGL2 EGL3 EGL4
+    LSBP LSLD LSRD LSLC LSRC ORS  AMS  KVS
+    OLVL OSCM FREC FREF DETU
+) ;
+
+my @allf = qw(
+    PTR1 PTR2 PTR3 PTR4 PTL1 PTL2 PTL3 PTL4
+    FDBK OKS  LFOD LAMD LFOK LFOW MSP  TRSP
+) ;
+
+
+###############################################################################
+#
+# usage
+
+sub usage(;$)
+{
+    my $msg = ( shift || '' ) ;
+
+    print <<EOF ;
+$0 infile
+
+Print the contents of a DX7 '.syx' file as JSON (or CSV, or text).
+
+-J      Show output as "raw" JSON.
+
+-c      Show output as CSV.
+
+-C      Show output as CSV with headers.
+
+-t      Show output as plain text.
+
+-h      Show this help message.
+
+The "raw" and "pretty" JSON formats contain the exact same data. The only
+difference is that the "pretty" output is a lot easier for human beings to
+read and edit.
+
+The CSV output
+
+
+EOF
+
+    if ( $msg ne '' )
+    {
+        print $msg ;
+        exit 1 ;
+    }
+
+    exit 0 ;
+}
+
+###############################################################################
+#
+# Read a number of bytes from a filehandle
+
+sub get_bytes($$)
+{
+    my $fh  = shift ;
+    my $c   = shift ;
+
+    my $rv  = '' ;
+
+    while ( $c > 0 )
+    {
+        $rv .= getc( $fh ) ;
+        $c -- ;
+    }
+
+    return $rv ;
+}
+
+###############################################################################
+#
+# Clean up a name so it's safe to be used in a CSV string
+# - escape any backslashes with a second backslash
+# - replace any double-quotes with TWO double-quotes
+
+sub clean_csv($)
+{
+    my $x = shift ;
+
+    $x =~ s|\\|\\\\|g ;
+    $x =~ s|"|""|g ;
+
+    return $x ;
+}
+
+###############################################################################
+#
+# Clean up a name so it's safe to be used within a JSON string
+# - RFC 8259, section 7 pp 1
+#
+#     All Unicode characters may be placed within the quotation marks,
+#     except for the characters that MUST be escaped: quotation mark,
+#     reverse solidus, and the control characters (U+0000 through U+001F).
+#
+#   Note: "reverse solidus" is commonly known as "backslash", U+005C
+#
+#   And yes, I could have replaced them with "\u0022" and "\u005C", but the
+#   point is for the JSON files to be edit-able by humans.
+
+sub clean_json($)
+{
+    my $x = shift ;
+
+    $x =~ s|\\|\\\\|g ;
+    $x =~ s|"|\\"|g ;
+    $x =~ s|([\x00-\x1F])|sprintf("\\u%04X",ord($1))|ge ;
+
+    return $x ;
+}
+
+###############################################################################
+#
+# Parse a voice block, either size
+
+sub parse_voice($$)
+{
+    my $input = shift ;
+    my $vsize = shift ;
+
+    my @b = split( // , $input ) ;
+    my %rv = () ;
+
+    ########################################
+    # If it's a 155-byte voice
+
+    if ( $vsize == 155 )
+    {
+        $rv{"OP6"}->{"EGR1"} = ord $b[  0] ;
+        $rv{"OP6"}->{"EGR2"} = ord $b[  1] ;
+        $rv{"OP6"}->{"EGR3"} = ord $b[  2] ;
+        $rv{"OP6"}->{"EGR4"} = ord $b[  3] ;
+        $rv{"OP6"}->{"EGL1"} = ord $b[  4] ;
+        $rv{"OP6"}->{"EGL2"} = ord $b[  5] ;
+        $rv{"OP6"}->{"EGL3"} = ord $b[  6] ;
+        $rv{"OP6"}->{"EGL4"} = ord $b[  7] ;
+        $rv{"OP6"}->{"LSBP"} = ord $b[  8] ;
+        $rv{"OP6"}->{"LSLD"} = ord $b[  9] ;
+        $rv{"OP6"}->{"LSRD"} = ord $b[ 10] ;
+        $rv{"OP6"}->{"LSLC"} = ord $b[ 11] ;
+        $rv{"OP6"}->{"LSRC"} = ord $b[ 12] ;
+        $rv{"OP6"}->{"ORS" } = ord $b[ 13] ;
+        $rv{"OP6"}->{"AMS" } = ord $b[ 14] ;
+        $rv{"OP6"}->{"KVS" } = ord $b[ 15] ;
+        $rv{"OP6"}->{"OLVL"} = ord $b[ 16] ;
+        $rv{"OP6"}->{"OSCM"} = ord $b[ 17] ;
+        $rv{"OP6"}->{"FREC"} = ord $b[ 18] ;
+        $rv{"OP6"}->{"FREF"} = ord $b[ 19] ;
+        $rv{"OP6"}->{"DETU"} = ord $b[ 20] ;
+
+        $rv{"OP5"}->{"EGR1"} = ord $b[ 21] ;
+        $rv{"OP5"}->{"EGR2"} = ord $b[ 22] ;
+        $rv{"OP5"}->{"EGR3"} = ord $b[ 23] ;
+        $rv{"OP5"}->{"EGR4"} = ord $b[ 24] ;
+        $rv{"OP5"}->{"EGL1"} = ord $b[ 25] ;
+        $rv{"OP5"}->{"EGL2"} = ord $b[ 26] ;
+        $rv{"OP5"}->{"EGL3"} = ord $b[ 27] ;
+        $rv{"OP5"}->{"EGL4"} = ord $b[ 28] ;
+        $rv{"OP5"}->{"LSBP"} = ord $b[ 29] ;
+        $rv{"OP5"}->{"LSLD"} = ord $b[ 30] ;
+        $rv{"OP5"}->{"LSRD"} = ord $b[ 31] ;
+        $rv{"OP5"}->{"LSLC"} = ord $b[ 32] ;
+        $rv{"OP5"}->{"LSRC"} = ord $b[ 33] ;
+        $rv{"OP5"}->{"ORS" } = ord $b[ 34] ;
+        $rv{"OP5"}->{"AMS" } = ord $b[ 35] ;
+        $rv{"OP5"}->{"KVS" } = ord $b[ 36] ;
+        $rv{"OP5"}->{"OLVL"} = ord $b[ 37] ;
+        $rv{"OP5"}->{"OSCM"} = ord $b[ 38] ;
+        $rv{"OP5"}->{"FREC"} = ord $b[ 39] ;
+        $rv{"OP5"}->{"FREF"} = ord $b[ 40] ;
+        $rv{"OP5"}->{"DETU"} = ord $b[ 41] ;
+
+        $rv{"OP4"}->{"EGR1"} = ord $b[ 42] ;
+        $rv{"OP4"}->{"EGR2"} = ord $b[ 43] ;
+        $rv{"OP4"}->{"EGR3"} = ord $b[ 44] ;
+        $rv{"OP4"}->{"EGR4"} = ord $b[ 45] ;
+        $rv{"OP4"}->{"EGL1"} = ord $b[ 46] ;
+        $rv{"OP4"}->{"EGL2"} = ord $b[ 47] ;
+        $rv{"OP4"}->{"EGL3"} = ord $b[ 48] ;
+        $rv{"OP4"}->{"EGL4"} = ord $b[ 49] ;
+        $rv{"OP4"}->{"LSBP"} = ord $b[ 50] ;
+        $rv{"OP4"}->{"LSLD"} = ord $b[ 51] ;
+        $rv{"OP4"}->{"LSRD"} = ord $b[ 52] ;
+        $rv{"OP4"}->{"LSLC"} = ord $b[ 53] ;
+        $rv{"OP4"}->{"LSRC"} = ord $b[ 54] ;
+        $rv{"OP4"}->{"ORS" } = ord $b[ 55] ;
+        $rv{"OP4"}->{"AMS" } = ord $b[ 56] ;
+        $rv{"OP4"}->{"KVS" } = ord $b[ 57] ;
+        $rv{"OP4"}->{"OLVL"} = ord $b[ 58] ;
+        $rv{"OP4"}->{"OSCM"} = ord $b[ 59] ;
+        $rv{"OP4"}->{"FREC"} = ord $b[ 60] ;
+        $rv{"OP4"}->{"FREF"} = ord $b[ 61] ;
+        $rv{"OP4"}->{"DETU"} = ord $b[ 62] ;
+
+        $rv{"OP3"}->{"EGR1"} = ord $b[ 63] ;
+        $rv{"OP3"}->{"EGR2"} = ord $b[ 64] ;
+        $rv{"OP3"}->{"EGR3"} = ord $b[ 65] ;
+        $rv{"OP3"}->{"EGR4"} = ord $b[ 66] ;
+        $rv{"OP3"}->{"EGL1"} = ord $b[ 67] ;
+        $rv{"OP3"}->{"EGL2"} = ord $b[ 68] ;
+        $rv{"OP3"}->{"EGL3"} = ord $b[ 69] ;
+        $rv{"OP3"}->{"EGL4"} = ord $b[ 70] ;
+        $rv{"OP3"}->{"LSBP"} = ord $b[ 71] ;
+        $rv{"OP3"}->{"LSLD"} = ord $b[ 72] ;
+        $rv{"OP3"}->{"LSRD"} = ord $b[ 73] ;
+        $rv{"OP3"}->{"LSLC"} = ord $b[ 74] ;
+        $rv{"OP3"}->{"LSRC"} = ord $b[ 75] ;
+        $rv{"OP3"}->{"ORS" } = ord $b[ 76] ;
+        $rv{"OP3"}->{"AMS" } = ord $b[ 77] ;
+        $rv{"OP3"}->{"KVS" } = ord $b[ 78] ;
+        $rv{"OP3"}->{"OLVL"} = ord $b[ 79] ;
+        $rv{"OP3"}->{"OSCM"} = ord $b[ 80] ;
+        $rv{"OP3"}->{"FREC"} = ord $b[ 81] ;
+        $rv{"OP3"}->{"FREF"} = ord $b[ 82] ;
+        $rv{"OP3"}->{"DETU"} = ord $b[ 83] ;
+
+        $rv{"OP2"}->{"EGR1"} = ord $b[ 84] ;
+        $rv{"OP2"}->{"EGR2"} = ord $b[ 85] ;
+        $rv{"OP2"}->{"EGR3"} = ord $b[ 86] ;
+        $rv{"OP2"}->{"EGR4"} = ord $b[ 87] ;
+        $rv{"OP2"}->{"EGL1"} = ord $b[ 88] ;
+        $rv{"OP2"}->{"EGL2"} = ord $b[ 89] ;
+        $rv{"OP2"}->{"EGL3"} = ord $b[ 90] ;
+        $rv{"OP2"}->{"EGL4"} = ord $b[ 91] ;
+        $rv{"OP2"}->{"LSBP"} = ord $b[ 92] ;
+        $rv{"OP2"}->{"LSLD"} = ord $b[ 93] ;
+        $rv{"OP2"}->{"LSRD"} = ord $b[ 94] ;
+        $rv{"OP2"}->{"LSLC"} = ord $b[ 95] ;
+        $rv{"OP2"}->{"LSRC"} = ord $b[ 96] ;
+        $rv{"OP2"}->{"ORS" } = ord $b[ 97] ;
+        $rv{"OP2"}->{"AMS" } = ord $b[ 98] ;
+        $rv{"OP2"}->{"KVS" } = ord $b[ 99] ;
+        $rv{"OP2"}->{"OLVL"} = ord $b[100] ;
+        $rv{"OP2"}->{"OSCM"} = ord $b[101] ;
+        $rv{"OP2"}->{"FREC"} = ord $b[102] ;
+        $rv{"OP2"}->{"FREF"} = ord $b[103] ;
+        $rv{"OP2"}->{"DETU"} = ord $b[104] ;
+
+        $rv{"OP1"}->{"EGR1"} = ord $b[105] ;
+        $rv{"OP1"}->{"EGR2"} = ord $b[106] ;
+        $rv{"OP1"}->{"EGR3"} = ord $b[107] ;
+        $rv{"OP1"}->{"EGR4"} = ord $b[108] ;
+        $rv{"OP1"}->{"EGL1"} = ord $b[109] ;
+        $rv{"OP1"}->{"EGL2"} = ord $b[110] ;
+        $rv{"OP1"}->{"EGL3"} = ord $b[111] ;
+        $rv{"OP1"}->{"EGL4"} = ord $b[112] ;
+        $rv{"OP1"}->{"LSBP"} = ord $b[113] ;
+        $rv{"OP1"}->{"LSLD"} = ord $b[114] ;
+        $rv{"OP1"}->{"LSRD"} = ord $b[115] ;
+        $rv{"OP1"}->{"LSLC"} = ord $b[116] ;
+        $rv{"OP1"}->{"LSRC"} = ord $b[117] ;
+        $rv{"OP1"}->{"ORS" } = ord $b[118] ;
+        $rv{"OP1"}->{"AMS" } = ord $b[119] ;
+        $rv{"OP1"}->{"KVS" } = ord $b[120] ;
+        $rv{"OP1"}->{"OLVL"} = ord $b[121] ;
+        $rv{"OP1"}->{"OSCM"} = ord $b[122] ;
+        $rv{"OP1"}->{"FREC"} = ord $b[123] ;
+        $rv{"OP1"}->{"FREF"} = ord $b[124] ;
+        $rv{"OP1"}->{"DETU"} = ord $b[125] ;
+
+        $rv{"ALL"}->{"PTR1"} = ord $b[126] ;
+        $rv{"ALL"}->{"PTR2"} = ord $b[127] ;
+        $rv{"ALL"}->{"PTR3"} = ord $b[128] ;
+        $rv{"ALL"}->{"PTR4"} = ord $b[129] ;
+        $rv{"ALL"}->{"PTL1"} = ord $b[130] ;
+        $rv{"ALL"}->{"PTL2"} = ord $b[131] ;
+        $rv{"ALL"}->{"PTL3"} = ord $b[132] ;
+        $rv{"ALL"}->{"PTL4"} = ord $b[133] ;
+        $rv{"ALGO"}          = ord $b[134] ;
+        $rv{"ALL"}->{"FDBK"} = ord $b[135] ;
+        $rv{"ALL"}->{"OKS" } = ord $b[136] ;
+        $rv{"LFOR"}          = ord $b[137] ;
+        $rv{"ALL"}->{"LFOD"} = ord $b[138] ;
+        $rv{"LPMD"}          = ord $b[139] ;
+        $rv{"ALL"}->{"LAMD"} = ord $b[140] ;
+        $rv{"ALL"}->{"LFOK"} = ord $b[141] ;
+        $rv{"ALL"}->{"LFOW"} = ord $b[142] ;
+        $rv{"ALL"}->{"MSP" } = ord $b[143] ;
+        $rv{"ALL"}->{"TRSP"} = ord $b[144] ;
+        $rv{"NAME"}          = substr( $input , 145, 10 ) ;
+    }
+
+    ########################################
+    # If it's a 128-byte voice
+
+    elsif ( $vsize == 128 )
+    {
+        $rv{"OP6"}->{"EGR1"} =   ord $b[  0] ;
+        $rv{"OP6"}->{"EGR2"} =   ord $b[  1] ;
+        $rv{"OP6"}->{"EGR3"} =   ord $b[  2] ;
+        $rv{"OP6"}->{"EGR4"} =   ord $b[  3] ;
+        $rv{"OP6"}->{"EGL1"} =   ord $b[  4] ;
+        $rv{"OP6"}->{"EGL2"} =   ord $b[  5] ;
+        $rv{"OP6"}->{"EGL3"} =   ord $b[  6] ;
+        $rv{"OP6"}->{"EGL4"} =   ord $b[  7] ;
+        $rv{"OP6"}->{"LSBP"} =   ord $b[  8] ;
+        $rv{"OP6"}->{"LSLD"} =   ord $b[  9] ;
+        $rv{"OP6"}->{"LSRD"} =   ord $b[ 10] ;
+        $rv{"OP6"}->{"LSLC"} = ( ord $b[ 11] & 0b00001100 ) >> 2 ;
+        $rv{"OP6"}->{"LSRC"} = ( ord $b[ 11] & 0b00000011 ) ;
+        $rv{"OP6"}->{"DETU"} = ( ord $b[ 12] & 0b01111000 ) >> 3 ;
+        $rv{"OP6"}->{"ORS" } = ( ord $b[ 12] & 0b00000111 ) ;
+        $rv{"OP6"}->{"KVS" } = ( ord $b[ 13] & 0b00011100 ) >> 2 ;
+        $rv{"OP6"}->{"AMS" } = ( ord $b[ 13] & 0b00000011 ) ;
+        $rv{"OP6"}->{"OLVL"} =   ord $b[ 14] ;
+        $rv{"OP6"}->{"FREC"} = ( ord $b[ 15] & 0b00111110 ) >> 1 ;
+        $rv{"OP6"}->{"OSCM"} = ( ord $b[ 15] & 0b00000001 ) ;
+        $rv{"OP6"}->{"FREF"} =   ord $b[ 16] ;
+
+        $rv{"OP5"}->{"EGR1"} =   ord $b[ 17] ;
+        $rv{"OP5"}->{"EGR2"} =   ord $b[ 18] ;
+        $rv{"OP5"}->{"EGR3"} =   ord $b[ 19] ;
+        $rv{"OP5"}->{"EGR4"} =   ord $b[ 20] ;
+        $rv{"OP5"}->{"EGL1"} =   ord $b[ 21] ;
+        $rv{"OP5"}->{"EGL2"} =   ord $b[ 22] ;
+        $rv{"OP5"}->{"EGL3"} =   ord $b[ 23] ;
+        $rv{"OP5"}->{"EGL4"} =   ord $b[ 24] ;
+        $rv{"OP5"}->{"LSBP"} =   ord $b[ 25] ;
+        $rv{"OP5"}->{"LSLD"} =   ord $b[ 26] ;
+        $rv{"OP5"}->{"LSRD"} =   ord $b[ 27] ;
+        $rv{"OP5"}->{"LSLC"} = ( ord $b[ 28] & 0b00001100 ) >> 2 ;
+        $rv{"OP5"}->{"LSRC"} = ( ord $b[ 28] & 0b00000011 ) ;
+        $rv{"OP5"}->{"DETU"} = ( ord $b[ 29] & 0b01111000 ) >> 3 ;
+        $rv{"OP5"}->{"ORS" } = ( ord $b[ 29] & 0b00000111 ) ;
+        $rv{"OP5"}->{"KVS" } = ( ord $b[ 30] & 0b00011100 ) >> 2 ;
+        $rv{"OP5"}->{"AMS" } = ( ord $b[ 30] & 0b00000011 ) ;
+        $rv{"OP5"}->{"OLVL"} =   ord $b[ 31] ;
+        $rv{"OP5"}->{"FREC"} = ( ord $b[ 32] & 0b00111110 ) >> 1 ;
+        $rv{"OP5"}->{"OSCM"} = ( ord $b[ 32] & 0b00000001 ) ;
+        $rv{"OP5"}->{"FREF"} =   ord $b[ 33] ;
+
+        $rv{"OP4"}->{"EGR1"} =   ord $b[ 34] ;
+        $rv{"OP4"}->{"EGR2"} =   ord $b[ 35] ;
+        $rv{"OP4"}->{"EGR3"} =   ord $b[ 36] ;
+        $rv{"OP4"}->{"EGR4"} =   ord $b[ 37] ;
+        $rv{"OP4"}->{"EGL1"} =   ord $b[ 38] ;
+        $rv{"OP4"}->{"EGL2"} =   ord $b[ 39] ;
+        $rv{"OP4"}->{"EGL3"} =   ord $b[ 40] ;
+        $rv{"OP4"}->{"EGL4"} =   ord $b[ 41] ;
+        $rv{"OP4"}->{"LSBP"} =   ord $b[ 42] ;
+        $rv{"OP4"}->{"LSLD"} =   ord $b[ 43] ;
+        $rv{"OP4"}->{"LSRD"} =   ord $b[ 44] ;
+        $rv{"OP4"}->{"LSLC"} = ( ord $b[ 45] & 0b00001100 ) >> 2 ;
+        $rv{"OP4"}->{"LSRC"} = ( ord $b[ 45] & 0b00000011 ) ;
+        $rv{"OP4"}->{"DETU"} = ( ord $b[ 46] & 0b01111000 ) >> 3 ;
+        $rv{"OP4"}->{"ORS" } = ( ord $b[ 46] & 0b00000111 ) ;
+        $rv{"OP4"}->{"KVS" } = ( ord $b[ 47] & 0b00011100 ) >> 2 ;
+        $rv{"OP4"}->{"AMS" } = ( ord $b[ 47] & 0b00000011 ) ;
+        $rv{"OP4"}->{"OLVL"} =   ord $b[ 48] ;
+        $rv{"OP4"}->{"FREC"} = ( ord $b[ 49] & 0b00111110 ) >> 1 ;
+        $rv{"OP4"}->{"OSCM"} = ( ord $b[ 49] & 0b00000001 ) ;
+        $rv{"OP4"}->{"FREF"} =   ord $b[ 50] ;
+
+        $rv{"OP3"}->{"EGR1"} =   ord $b[ 51] ;
+        $rv{"OP3"}->{"EGR2"} =   ord $b[ 52] ;
+        $rv{"OP3"}->{"EGR3"} =   ord $b[ 53] ;
+        $rv{"OP3"}->{"EGR4"} =   ord $b[ 54] ;
+        $rv{"OP3"}->{"EGL1"} =   ord $b[ 55] ;
+        $rv{"OP3"}->{"EGL2"} =   ord $b[ 56] ;
+        $rv{"OP3"}->{"EGL3"} =   ord $b[ 57] ;
+        $rv{"OP3"}->{"EGL4"} =   ord $b[ 58] ;
+        $rv{"OP3"}->{"LSBP"} =   ord $b[ 59] ;
+        $rv{"OP3"}->{"LSLD"} =   ord $b[ 60] ;
+        $rv{"OP3"}->{"LSRD"} =   ord $b[ 61] ;
+        $rv{"OP3"}->{"LSLC"} = ( ord $b[ 62] & 0b00001100 ) >> 2 ;
+        $rv{"OP3"}->{"LSRC"} = ( ord $b[ 62] & 0b00000011 ) ;
+        $rv{"OP3"}->{"DETU"} = ( ord $b[ 63] & 0b01111000 ) >> 3 ;
+        $rv{"OP3"}->{"ORS" } = ( ord $b[ 63] & 0b00000111 ) ;
+        $rv{"OP3"}->{"KVS" } = ( ord $b[ 64] & 0b00011100 ) >> 2 ;
+        $rv{"OP3"}->{"AMS" } = ( ord $b[ 64] & 0b00000011 ) ;
+        $rv{"OP3"}->{"OLVL"} =   ord $b[ 65] ;
+        $rv{"OP3"}->{"FREC"} = ( ord $b[ 66] & 0b00111110 ) >> 1 ;
+        $rv{"OP3"}->{"OSCM"} = ( ord $b[ 66] & 0b00000001 ) ;
+        $rv{"OP3"}->{"FREF"} =   ord $b[ 67] ;
+
+        $rv{"OP2"}->{"EGR1"} =   ord $b[ 68] ;
+        $rv{"OP2"}->{"EGR2"} =   ord $b[ 69] ;
+        $rv{"OP2"}->{"EGR3"} =   ord $b[ 70] ;
+        $rv{"OP2"}->{"EGR4"} =   ord $b[ 71] ;
+        $rv{"OP2"}->{"EGL1"} =   ord $b[ 72] ;
+        $rv{"OP2"}->{"EGL2"} =   ord $b[ 73] ;
+        $rv{"OP2"}->{"EGL3"} =   ord $b[ 74] ;
+        $rv{"OP2"}->{"EGL4"} =   ord $b[ 75] ;
+        $rv{"OP2"}->{"LSBP"} =   ord $b[ 76] ;
+        $rv{"OP2"}->{"LSLD"} =   ord $b[ 77] ;
+        $rv{"OP2"}->{"LSRD"} =   ord $b[ 78] ;
+        $rv{"OP2"}->{"LSLC"} = ( ord $b[ 79] & 0b00001100 ) >> 2 ;
+        $rv{"OP2"}->{"LSRC"} = ( ord $b[ 79] & 0b00000011 )      ;
+        $rv{"OP2"}->{"DETU"} = ( ord $b[ 80] & 0b01111000 ) >> 3 ;
+        $rv{"OP2"}->{"ORS" } = ( ord $b[ 80] & 0b00000111 )      ;
+        $rv{"OP2"}->{"KVS" } = ( ord $b[ 81] & 0b00011100 ) >> 2 ;
+        $rv{"OP2"}->{"AMS" } = ( ord $b[ 81] & 0b00000011 )      ;
+        $rv{"OP2"}->{"OLVL"} =   ord $b[ 82] ;
+        $rv{"OP2"}->{"FREC"} = ( ord $b[ 83] & 0b00111110 ) >> 1 ;
+        $rv{"OP2"}->{"OSCM"} = ( ord $b[ 83] & 0b00000001 )      ;
+        $rv{"OP2"}->{"FREF"} =   ord $b[ 84] ;
+
+        $rv{"OP1"}->{"EGR1"} =   ord $b[ 85] ;
+        $rv{"OP1"}->{"EGR2"} =   ord $b[ 86] ;
+        $rv{"OP1"}->{"EGR3"} =   ord $b[ 87] ;
+        $rv{"OP1"}->{"EGR4"} =   ord $b[ 88] ;
+        $rv{"OP1"}->{"EGL1"} =   ord $b[ 89] ;
+        $rv{"OP1"}->{"EGL2"} =   ord $b[ 90] ;
+        $rv{"OP1"}->{"EGL3"} =   ord $b[ 91] ;
+        $rv{"OP1"}->{"EGL4"} =   ord $b[ 92] ;
+        $rv{"OP1"}->{"LSBP"} =   ord $b[ 93] ;
+        $rv{"OP1"}->{"LSLD"} =   ord $b[ 94] ;
+        $rv{"OP1"}->{"LSRD"} =   ord $b[ 95] ;
+        $rv{"OP1"}->{"LSLC"} = ( ord $b[ 96] & 0b00001100 ) >> 2 ;
+        $rv{"OP1"}->{"LSRC"} = ( ord $b[ 96] & 0b00000011 )      ;
+        $rv{"OP1"}->{"DETU"} = ( ord $b[ 97] & 0b01111000 ) >> 3 ;
+        $rv{"OP1"}->{"ORS" } = ( ord $b[ 97] & 0b00000111 )      ;
+        $rv{"OP1"}->{"KVS" } = ( ord $b[ 98] & 0b00011100 ) >> 2 ;
+        $rv{"OP1"}->{"AMS" } = ( ord $b[ 98] & 0b00000011 )      ;
+        $rv{"OP1"}->{"OLVL"} =   ord $b[ 99] ;
+        $rv{"OP1"}->{"FREC"} = ( ord $b[100] & 0b00111110 ) >> 1 ;
+        $rv{"OP1"}->{"OSCM"} = ( ord $b[100] & 0b00000001 )      ;
+        $rv{"OP1"}->{"FREF"} =   ord $b[101] ;
+
+        $rv{"ALL"}->{"PTR1"} =   ord $b[102] ;
+        $rv{"ALL"}->{"PTR2"} =   ord $b[103] ;
+        $rv{"ALL"}->{"PTR3"} =   ord $b[104] ;
+        $rv{"ALL"}->{"PTR4"} =   ord $b[105] ;
+        $rv{"ALL"}->{"PTL1"} =   ord $b[106] ;
+        $rv{"ALL"}->{"PTL2"} =   ord $b[107] ;
+        $rv{"ALL"}->{"PTL3"} =   ord $b[108] ;
+        $rv{"ALL"}->{"PTL4"} =   ord $b[109] ;
+        $rv{"ALGO"}          =   ord $b[110] ;
+        $rv{"ALL"}->{"OKS" } = ( ord $b[111] & 0b00001000 ) >> 3 ;
+        $rv{"ALL"}->{"FDBK"} = ( ord $b[111] & 0b00000111 )      ;
+        $rv{"LFOR"}          =   ord $b[112] ;
+        $rv{"ALL"}->{"LFOD"} =   ord $b[113] ;
+        $rv{"LPMD"}          =   ord $b[114] ;
+        $rv{"ALL"}->{"LAMD"} =   ord $b[115] ;
+        $rv{"ALL"}->{"LFOK"} = ( ord $b[116] & 0b01110000 ) >> 4 ;
+        $rv{"ALL"}->{"LFOW"} = ( ord $b[116] & 0b00001110 ) >> 1 ;
+        $rv{"ALL"}->{"MSP" } = ( ord $b[116] & 0b00000001 )      ;
+        $rv{"ALL"}->{"TRSP"} =   ord $b[117] ;
+        $rv{"NAME"}          = substr( $input , 118, 10 ) ;
+    }
+
+    ########################################
+    # Otherwise, error
+
+    else
+    {
+        die "ERROR: parse_voice(): \$vsize=$vsize unknown\n" ;
+    }
+
+    return %rv ;
+}
+
+###############################################################################
+#
+# Output a voice's parameters as plain text
+
+sub print_voices_text(@)
+{
+    while ( my $rvoice = shift )
+    {
+        my %v = %{$rvoice} ;
+
+        printf "[%-10s] ALGO %2d  LFOR %2d  LPMD %2d\n" ,
+            $v{'NAME'} , $v{'ALGO'} , $v{'LFOR'} , $v{'LPMD'} ;
+
+        for my $op ( 1 .. 6 )
+        {
+            printf "  OP %d" , $op ;
+
+            for my $n ( 0 .. $#opf )
+            {
+                my $f = $opf[$n] ;
+
+                if ( ( $n % 8 ) == 0 )
+                {
+                    print "\n  " ;
+                }
+                elsif ( ( $n % 4 ) == 0 )
+                {
+                    print "  " ;
+                }
+
+                printf "  %-4s %2d" , $f , $v{"OP$op"}->{$f} ;
+            }
+
+            print "\n" ;
+        }
+
+        printf "  ALL" ;
+
+        for my $n ( 0 .. $#allf )
+        {
+            my $f = $allf[$n] ;
+
+            if ( ( $n % 8 ) == 0 )
+            {
+                print "\n  " ;
+            }
+            elsif ( ( $n % 4 ) == 0 )
+            {
+                print "  " ;
+            }
+
+            printf "  %-4s %2d" , $f , $v{'ALL'}->{$f} ;
+        }
+
+        print "\n" ;
+    }
+}
+
+###############################################################################
+#
+# Output a voice's parameters as CSV
+
+sub csv_header()
+{
+    my $rv = "\"NAME\",\"ALGO\",\"LFOR\",\"LPMD\"" ;
+
+    for my $op ( 1 .. 6 )
+    {
+        $rv .= ",\"$op ON\"" ;
+        map { $rv .= ",\"$op $_\"" } @opf ;
+    }
+
+    map { $rv .= ",\"A $_\"" } @allf ;
+
+    return "$rv\n" ;
+}
+
+sub print_voices_csv(@)
+{
+    $csv_headers && print csv_header() ;
+
+    while ( my $rvoice = shift )
+    {
+        my %v = %{$rvoice} ;
+
+        printf '"%s",%d,%d,%d' , clean_csv( $v{'NAME'} ) ,
+            $v{'ALGO'} , $v{'LFOR'} , $v{'LPMD'} ;
+
+        for my $op ( 1 .. 6 )
+        {
+            printf ",1" ;
+
+            map { printf ",%d" , $v{"OP$op"}->{$_} } @opf ;
+        }
+
+        map { printf ",%d" , $v{'ALL'}->{$_} } @allf ;
+
+        print "\n" ;
+    }
+}
+
+###############################################################################
+#
+# Output a voice's parameters as "pretty" JSON
+# - indentation and whitespace to make the file easy for human eyeballs
+
+sub print_voices_json_pretty(@)
+{
+    my @vj = () ;
+
+    while ( my $rvoice = shift )
+    {
+        my %v = %{$rvoice} ;
+
+        my $vt = "  {\n" ;
+        $vt .= sprintf( "    \"NAME\" : \"%s\" ,\n" , clean_json( $v{'NAME'} ) ) ;
+        $vt .= sprintf( "    \"ALGO\" : %2d ,\n"    , $v{'ALGO'} ) ;
+        $vt .= sprintf( "    \"LFOR\" : %2d ,\n"    , $v{'LFOR'} ) ;
+        $vt .= sprintf( "    \"LPMD\" : %2d ,\n"    , $v{'LPMD'} ) ;
+
+        for my $op ( 1 .. 6 )
+        {
+            $vt .= "    \"OP$op\" : {\n" ;
+            $vt .= "      \"ON\"   :  1 ,\n      " ;
+
+            my @ft = map { sprintf( "%-6s : %2d" , "\"$_\"" , $v{"OP$op"}->{$_} ) } @opf ;
+
+            $vt .= join( " ,\n      " , @ft ) ;
+
+            $vt .= "\n    } ,\n" ;
+        }
+
+        $vt .= "    \"ALL\" : {\n" ;
+
+        for my $f ( @allf )
+        {
+            $vt .= sprintf( "      %-6s : %2d%s\n" , "\"$f\"" ,
+                $v{'ALL'}->{$f} , ( ( $f eq 'TRSP' ) ? '' : ' ,' ) ) ;
+        }
+        $vt .=  "    }\n  }" ;
+
+        push( @vj , $vt ) ;
+    }
+
+    print "[\n" , join( " ,\n" , @vj ) , "\n]\n" ;
+}
+
+###############################################################################
+#
+# Output a voice's parameters as "raw" JSON
+# - no unnecessary whitespace
+
+sub print_voices_json_raw(@)
+{
+    my @vj = () ;
+
+    while ( my $rvoice = shift )
+    {
+        my %v = %{$rvoice} ;
+
+        my $vt = "{\"NAME\":\"" . clean_json( $v{'NAME'} ) . "\"," ;
+        $vt .= "\"ALGO\":$v{'ALGO'}," ;
+        $vt .= "\"LFOR\":$v{'LFOR'}," ;
+        $vt .= "\"LPMD\":$v{'LPMD'}," ;
+
+        my @ops = () ;
+        for my $op ( 1 .. 6 )
+        {
+            my $ot .= "\"OP$op\":{\"ON\":1," ;
+
+            my @ft = map { "\"$_\":$v{\"OP$op\"}->{$_}" } @opf ;
+            $ot .= join( ',' , @ft ) ;
+
+            $ot .= '}' ;
+
+            push( @ops , $ot ) ;
+        }
+        $vt .= join( ',' , @ops ) ;
+
+        $vt .= ",\"ALL\":{" ;
+        $vt .= join( ',' , map { "\"$_\":$v{'ALL'}->{$_}" } @allf ) ;
+        $vt .=  '}}' ;
+
+        push( @vj , $vt ) ;
+    }
+
+    print '[' , join( "," , @vj ) , "]\n" ;
+}
+
+###############################################################################
+###############################################################################
+###############################################################################
+#
+# Parse the command line
+
+getopts ( 'hcCjJt' , \%opt ) ;
+$opt{'h'} && usage() ;
+
+if ( $opt{'J'} )
+{
+    $out_format = 'J' ;
+    $json_raw   = 1 ;
+}
+elsif ( $opt{'j'} )
+{
+    $out_format = 'J' ;
+    $json_raw   = 0 ;
+}
+elsif ( $opt{'C'} )
+{
+    $out_format  = 'C' ;
+    $csv_headers = 1 ;
+}
+elsif ( $opt{'c'} )
+{
+    $out_format  = 'C' ;
+    $csv_headers = 0 ;
+}
+elsif ( $opt{'t'} )
+{
+    $out_format = 'T' ;
+}
+
+my $infile = ( shift || usage() ) ;
+
+###############################################################################
+#
+# Open the file
+
+open( I , '<' , $infile )
+    or die "ERROR: can't read \"$infile\": $!\n" ;
+
+binmode I ;
+
+###############################################################################
+#
+# Figure out what kind of file this is
+
+my $header  = get_bytes( \*I , 6 ) ;
+my $voices  = 0 ;
+my $vsize   = 0 ;
+
+if ( $header eq "\xF0\x43\x00\x00\x01\x1B" )
+{
+    $voices = 1 ;
+    $vsize  = 155 ;
+}
+elsif ( $header eq "\xF0\x43\x00\x09\x20\x00" )
+{
+    $voices = 32 ;
+    $vsize  = 128 ;
+}
+else
+{
+    close I ;
+    die "ERROR: unrecognized file header\n" ;
+}
+
+###############################################################################
+#
+# Process the voices in the file
+
+my @vdata = () ;
+
+while ( $voices > 0 )
+{
+    my $vdata = get_bytes( \*I , $vsize ) ;
+    my %vparm = parse_voice( $vdata, $vsize ) ;
+    push ( @vdata , { %vparm } ) ;
+
+    $voices -- ;
+}
+
+# TODO: checksum?
+
+close I ;
+
+###############################################################################
+#
+# Call the appropriate output function
+
+if ( $out_format eq 'T' )
+{
+    print_voices_text( @vdata ) ;
+}
+elsif ( $out_format eq 'C' )
+{
+    print_voices_csv( @vdata ) ;
+}
+elsif ( $json_raw )
+{
+    print_voices_json_raw( @vdata ) ;
+}
+else
+{
+    print_voices_json_pretty( @vdata ) ;
+}

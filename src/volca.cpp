@@ -13,6 +13,7 @@
 
 using namespace MIDI_NAMESPACE;
 
+extern uint8_t parameters_value[];
 extern int current_algo; 
 extern MidiInterface<SerialMIDI<HardwareSerial>> MIDI; /**<interface MIDI*/
 
@@ -22,30 +23,6 @@ extern MidiInterface<SerialMIDI<HardwareSerial>> MIDI; /**<interface MIDI*/
  */
 
 byte algorithm_num[8] = {0, 13, 7, 6, 4, 21, 30, 31};
-
-/**
- * @brief Pour stocker tous les paramètres FM avec des valeurs par défaut.
- * 
- * Ces paramètres sont par défaut ceux du patch MYPATCH.
- * */
-byte parameters_value[156] = {
-    M, M, 0, 0, M, M, M, M, // RATE, LEVEL
-        0, 0, 0, 0, 0, 0, // SCALING
-        0, 0, 84, // SENS., OUTPUT LEVEL
-        0, 3, 0, 0, // OSC MODE, COARSE, FILE, DETUNE
-    M, M, 0, 0, M, M, M, M, 0, 0, 0, 0, 0, 0, 0, 0, 84, 0, 0, 0, 0,
-    M, M, 0, 0, M, M, M, M, 0, 0, 0, 0, 0, 0, 0, 0, 84, 0, 1, 0, 0,
-    M, M, 0, 0, M, M, M, M, 0, 0, 0, 0, 0, 0, 0, 0, M, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    50, 50, 50, 50, 50, 50, 50, 50, // PITCH EG
-    0, 7, 1, // ALGO, FEEDBACK, OSC. SYNC
-    0, 0, 0, 0, 0, 0, // LFO
-    0, // PMS
-    0, // TRANSPOSE
-    'M', 'Y', 'P', 'A', 'T', 'C', 'H', ' ', ' ', ' ', // VOICE NAME
-    15 // OP ON/OFF
-};
 
 /**
  * @brief Tableau des valeurs maximales de chacun des 156 paramètres FM.
